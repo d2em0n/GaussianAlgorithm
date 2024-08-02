@@ -1,0 +1,138 @@
+using NUnit.Framework;
+using NUnit.Framework.Constraints;
+using System;
+using System.Collections.Generic;
+using System.Data;
+using System.Linq;
+using System.Net.Http.Headers;
+using System.Reflection;
+
+namespace GaussAlgorithm;
+
+public class Solver
+{
+    public enum Equation
+    {
+        Significant,
+        Dependent,
+        HasNoSolution
+    }    
+
+    private static Equation CheckNoSolutions(double[] row)
+    {
+        var last = row[row.Length - 1];
+        var hasNoSolution = row
+            .Take(row.Length - 1)
+            .All(x => Math.Abs(x) < 1e-6);
+        if (Math.Abs(last) > 1e-6 && hasNoSolution)
+            return Equation.HasNoSolution;
+        if (Math.Abs(last) < 1e-6 && hasNoSolution)
+            return Equation.Dependent;
+        return Equation.Significant;
+        
+    }
+    private static Dictionary<int, double[]> NumberTheEquations(double[][] matrix, double[] freeMembers, int rows, int cols)
+    {
+        var d = new Dictionary<int, double[]>();
+        for (var i = 0; i < rows; i++)
+        {
+            for (var j = 0; j < cols; j++)
+            {
+                if (matrix[i][j] != 0 && !d.ContainsKey(i))
+                {
+                    d[i] = new double[cols + 1];
+                    for (var k = 0; k < cols; k++)
+                    {
+                        d[i][k] = matrix[i][k] / matrix[i][j];
+                    }
+                    d[i][cols] = freeMembers[i] / matrix[i][j];
+                    continue;
+                }
+            }
+        }
+        return d;
+    }
+
+    private static void MakeZeroesUnderDiagonal(Dictionary<int, double[]> numberedEquations, int rows)
+    {
+        var keyToRemove = new List<int>();
+        for (var i = 0; i < rows - 1; i++)
+        {
+            if (!numberedEquations.ContainsKey(i)) continue;
+            for (var j = i + 1; j < rows; j++)
+            {
+                if (!numberedEquations.ContainsKey(j)) continue;
+                var temp = numberedEquations[j]
+                    .Zip(numberedEquations[i]
+                        .Select(x => x * numberedEquations[j][i] * (-1)))
+                    .Select(x => x.Second + x.First)
+                    .ToArray();
+                var equation = CheckNoSolutions(temp);
+                if (equation == Equation.HasNoSolution)
+                    throw new NoSolutionException();
+                if (equation == Equation.Dependent)
+                    keyToRemove.Add(j);
+                numberedEquations[j] = temp
+                        .Select(x => (temp[j] == 0) ? x : x / temp[j])
+                        .ToArray();
+            }
+        }
+        foreach (var key in keyToRemove)
+            numberedEquations.Remove(key);
+    }
+
+    public static void MakeZeroesOverDiagonal(Dictionary<int, double[]> numberedEquations, int rows)
+    {
+        for (var i = rows - 1; i > 0; i--)
+        {
+            if (!numberedEquations.ContainsKey(i)) continue;
+            for (var j = i - 1; j >= 0; j--)
+            {
+                if (!numberedEquations.ContainsKey(j)) continue;
+                var temp = numberedEquations[j]
+                    .Zip(numberedEquations[i]
+                        .Select(x => x * numberedEquations[j][i] * (-1)))
+                    .Select(x => x.Second + x.First)
+                    .ToArray();
+                numberedEquations[j] = temp;
+            }
+        }
+
+    }
+
+    public double[] Solve(double[][] matrix, double[] freeMembers)
+    {
+        var rows = matrix.Length;
+        var cols = matrix[0].Length;
+        var solution = new double[cols];
+        var numberedEquations = NumberTheEquations(matrix, freeMembers, rows, cols);
+        MakeZeroesUnderDiagonal(numberedEquations, rows);
+        MakeZeroesOverDiagonal(numberedEquations, rows);
+        //for (var i = 0; i < cols; i++)
+        //{
+            
+        //}
+        foreach (var i in numberedEquations.Keys)
+            solution[i] = numberedEquations[i][cols];
+        return solution;
+
+    }
+}
+[TestFixture]
+public class MyTests
+{
+    [Test]
+    public void FromTaskTest()
+    {
+        var matrix = new double[][]
+        {
+            new double[] {1, 2, 3 },
+            new double[] { 1, 1, 5},
+            new double[] { 2, -1, 2}
+        };
+        var freeMembers = new double[] { 1, -1, 6 };
+        var solver = new Solver();
+        var result = solver.Solve(matrix, freeMembers);
+        Assert.AreEqual(result, new double[] { 4, 0, -1 });
+    }
+}
